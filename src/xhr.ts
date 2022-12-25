@@ -1,16 +1,30 @@
 import { AxiosPromise, AxiosRequestConfig, AxiosResponse } from './types'
 import { parseHeader } from './helps/header'
+import { createError } from './helps/error'
 export default function xhr(config: AxiosRequestConfig): AxiosPromise {
-  return new Promise((resolve) => {
-    const { data = null, url, method = 'get', headers, responseType } = config
+  return new Promise((resolve, reject) => {
+    const {
+      data = null,
+      url,
+      method = 'get',
+      headers,
+      responseType,
+      timeout,
+    } = config
     const request = new XMLHttpRequest()
     if (responseType) {
       request.responseType = responseType
+    }
+    if (timeout) {
+      request.timeout = timeout
     }
     request.open(method.toUpperCase(), url, true)
 
     request.onreadystatechange = function handleLoad() {
       if (request.readyState !== 4) {
+        return
+      }
+      if (request.status === 0) {
         return
       }
       const responseHeaders = parseHeader(request.getAllResponseHeaders())
@@ -29,6 +43,39 @@ export default function xhr(config: AxiosRequestConfig): AxiosPromise {
       resolve(response)
     }
 
+    //status200-300 之间正常返回结果 其他的 返回错误对象
+    function handleResponse(response: AxiosResponse) {
+      if (response.status >= 200 && response.status < 300) {
+        resolve(response)
+      } else {
+        reject(
+          createError(
+            `Request failed with status code ${response.status}`,
+            config,
+            null,
+            request,
+            response
+          )
+        )
+      }
+    }
+    //网络错误监听
+    request.onerror = function handleError() {
+      reject(createError('Network Error', config, null, request))
+    }
+    //网络超时监听
+    request.ontimeout = function handleTimeout() {
+      reject(
+        createError(
+          `Timeout if ${timeout} ms exceeded`,
+          config,
+          'ECONNABORTED',
+          request
+        )
+      )
+    }
+
+    //未设置content- type 设置值
     Object.keys(headers).forEach((name) => {
       if (data === null && name.toLowerCase() === 'content-type') {
         delete headers[name]
